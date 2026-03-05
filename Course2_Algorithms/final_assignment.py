@@ -1,3 +1,5 @@
+import math
+
 import pyomo.environ as pyo
 
 def print_solver_info(result):
@@ -23,8 +25,8 @@ def preprocess_jobs(conflicting_jobs: list[list[int]]) -> dict:
     return final_dict
 
 # P1
-def parallel_machine_scheduling(model: pyo.ConcreteModel, num_machines: int, processing_times: list[int],
-                                conflicting_jobs: list[list[int]]) -> int | None:
+def parallel_machine_scheduling(model: pyo.ConcreteModel, processing_times: list[int], conflicting_jobs: list[list[int]],
+                                num_machines: int) -> int:
 
     if len(processing_times) != len(conflicting_jobs):
         print("The ratio between the number of jobs and the size of the conflicting jobs should be 1:1")
@@ -80,15 +82,172 @@ def parallel_machine_scheduling(model: pyo.ConcreteModel, num_machines: int, pro
 
     print(f"Optimal makespan/objective = {pyo.value(model.obj)}")  # model.t == model.obj
 
+    return pyo.value(model.obj)
+
 
 # P2
+def min_max_facility_location(model: pyo.ConcreteModel, distances: list[list[int]], district_population: list[int],
+                              num_facilities: int) -> int:
 
-def facility_location(model: pyo.ConcreteModel) -> None:
+    solver = pyo.SolverFactory('glpk')
+
+    if len(distances) != len(district_population):
+        print("The ratio between the number of districts and the distances array should be 1:1")
+        return -1
+
+    # facilities
+    model.N = pyo.Set(initialize=range(num_facilities))
+
+    # districts
+    model.M = pyo.Set(initialize=range(len(distances)))
+
+    # decision variables
+    model.x = pyo.Var(model.M, domain=pyo.Binary)
+    model.y = pyo.Var(model.M, model.M, domain=pyo.Binary)
+
+    # parameters
+    distances_dict = {
+        (i, j): distances[i][j]
+        for i in range(len(distances))
+        for j in range(len(distances))
+    }
+    model.distances = pyo.Param(model.M, model.M, initialize=distances_dict)
+
+    population_dict = {i : district_population[i] for i in range(len(district_population))}
+    model.population = pyo.Param(model.M, initialize=population_dict)
+
+    # objective
+    model.t = pyo.Var(domain=pyo.NonNegativeReals)
+
+    # trick: introduce t, and then force t to be >= than all the individual metrics
+    model.obj = pyo.Objective(expr=model.t, sense=pyo.minimize)
+
+    # constraints
+
+    # exactly N facilities allocated
+    def c1_rule(model):
+        return sum(model.x[j] for j in model.M) == len(model.N)
+    model.c1 = pyo.Constraint(rule=c1_rule)
+
+    # assign facilities only to open locations
+    def c2_rule(model, i, j):
+        return model.y[i, j] <= model.x[j]
+    model.c2 = pyo.Constraint(model.M, model.M, rule=c2_rule)
+
+    # only one facility can be the closest
+    def c3_rule(model, i):
+        return sum(model.y[i, j] for j in model.M) == 1
+    model.c3 = pyo.Constraint(model.M, rule=c3_rule)
+
+    def c4_rule(model, i): # the sum is after j, i is given
+        return model.t >= (model.population[i] * sum(model.distances[i, j] * model.y[i, j] for j in model.M))
+    model.c4 = pyo.Constraint( model.M, rule=c4_rule)
+
+    result = solver.solve(model)
+    print_solver_info(result)
+
+    print(f"Found objective = {pyo.value(model.t)}")
+    return pyo.value(model.obj)
+
+
+# P3
+def compute_objective(facilities: list[int], new_idx: int, distances: list[list[int]]) -> int:
+
+    if new_idx < 0 or new_idx > len(facilities):
+        return -1
+
+    # cazul 0: 1 singura ambulanta -> calculezi pop_j * dist(facility, amb_location)
+    # celelalte: mai intai trebuie sa vezi care ambulanta este cea mai apropiata
+
+    facilities[new_idx] = 1
+    assigned_facilities = [i for i in range(len(facilities)) if facilities[i] == 1]
+
+    for i in range(len(facilities)):
+        current_district = facilities[i]
+        closest_facility_idx = 0
+
+        for j in range(len(assigned_facilities)):
+            current_facility = assigned_facilities[j]
+            if distances[current_district][current_facility] < distances[current_district][closest_facility_idx]:
+                closest_facility_idx = current_facility
+
+
+
+    pass
+
+
+def choose_district(facilities: list[int], distances: list[list[int]]) -> int:
+
+    min_val = -1
+    idx = 0
+
+    for i in range(len(facilities)):
+        if facilities[i] == 0:
+            temp_arr = facilities
+
+            # aici doar verifici care sunt locatiile in care putem sa punem ambulanta
+
+    # dupa, separat calculezi care este locatia
+    # pentru care amplasarea ambulantei ar scadea costul total cel mai mult
+    """
+    # choose greedily the district with the lowest weighted distance
+    current_objective = compute_objective(temp_arr, i, distances)
+    if current_objective < min_val:
+        min_val = current_objective
+        idx = i
+    """
+
+    return facilities[idx]
+
+
+def heuristic_facility_allocation(distances: list[list[int]], district_population: list[int], num_facilities: int) -> int:
+    """
+    Args:
+        distances: a 2d array containing the distance between every 2 districts
+        district_population: an array containing the population (in thousands)
+        num_facilities: how many facilities to may allocate
+
+    Returns: the minimized maximum population-weighted firefighting (PWFT) times among all districts
+
+    idea: For a given number of iterations, equal to num_facilities, locate an ambulance in a district that
+            (1) currently does not have an ambulance AND
+            (2) minimizes PWFT among all districts
+          If there are multiple districts satisfying these two conditions, pick the one with the smallest district ID.
+    """
+
+    facility_idx = [0] * len(district_population)
+
+    num_iterations = 0
+    while num_iterations <= num_facilities:
+        facility_idx.append(choose_district(facility_idx, distances))
+        num_iterations += 1
+
+    return compute_objective(facility_idx, distances)
+
 
 if __name__ == '__main__':
 
     p_model = pyo.ConcreteModel()
 
+    """
     p_times = [7, 4, 6, 9, 12, 8, 10, 11, 8, 7, 6, 8, 15, 14, 3]
     c_jobs = [[], [4, 7], [], [], [1, 7], [8], [9], [1, 4], [5], [6], [14], [], [], [], [10]]
-    parallel_machine_scheduling(model=p_model, num_machines=3, processing_times=p_times, conflicting_jobs=c_jobs)
+    parallel_machine_scheduling(model=p_model, processing_times=p_times, conflicting_jobs=c_jobs, num_machines=3)
+    """
+
+    p_distances = [[0, 3, 4, 6, 8, 9, 8, 10],
+                   [3, 0, 5, 4, 8, 6, 12, 9],
+                   [4, 5, 0, 2, 2, 3, 5, 7],
+                   [6, 4, 2, 0, 3, 2, 5, 4],
+                   [8, 8, 2, 3, 0, 2, 2, 4],
+                   [9, 6, 3, 2, 2, 0, 3, 2],
+                   [8, 12, 5, 5, 2, 3, 0, 2],
+                   [10, 9, 7, 4, 4, 2, 2, 0]]
+
+    p_district_population = [40, 30, 35, 20, 15, 50, 45, 60]
+
+    """
+    min_max_facility_location(model=p_model, distances=p_distances, district_population=p_district_population, num_facilities=2)
+    """
+
+    heuristic_facility_allocation(distances=p_distances, district_population=p_district_population, num_facilities=3)
