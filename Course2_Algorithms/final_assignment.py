@@ -151,78 +151,88 @@ def min_max_facility_location(model: pyo.ConcreteModel, distances: list[list[int
 
 
 # P3
-def compute_objective(facilities: list[int], new_idx: int, distances: list[list[int]]) -> int:
+def compute_objective(facilities: list[int], located_facilities: list[int], distances: list[list[int]],
+                      district_population: list[int]) -> int:
 
-    if new_idx < 0 or new_idx > len(facilities):
-        return -1
+    weighted_distance = [0] * len(located_facilities)
+    print(f"len(weighted_distance) = {len(weighted_distance)}")
+    print(f"len(facilities) = {len(facilities)}")
+    print(f"len(district_population) = {len(district_population)}")
+    print(f"len(distances) = {len(distances)}")
 
-    # cazul 0: 1 singura ambulanta -> calculezi pop_j * dist(facility, amb_location)
-    # celelalte: mai intai trebuie sa vezi care ambulanta este cea mai apropiata
-
-    facilities[new_idx] = 1
-    assigned_facilities = [i for i in range(len(facilities)) if facilities[i] == 1]
+    closest_facilities = [0] * len(facilities)
 
     for i in range(len(facilities)):
         current_district = facilities[i]
         closest_facility_idx = 0
 
-        for j in range(len(assigned_facilities)):
-            current_facility = assigned_facilities[j]
-            if distances[current_district][current_facility] < distances[current_district][closest_facility_idx]:
-                closest_facility_idx = current_facility
+        for j in range(len(located_facilities)):
+            located_facility = located_facilities[j]
+            if distances[current_district][located_facility] < distances[current_district][located_facilities[closest_facility_idx]]:
+                closest_facility_idx = j
+
+        closest_facilities[i] = closest_facility_idx
+
+    # cumva ajungi la 'len(facilities) = 9
+
+    print(f"closest_facilities = {closest_facilities}")
+    for i in range(len(closest_facilities)):
+        weighted_distance[closest_facilities[i]] += district_population[i] * distances[facilities[i]][closest_facilities[i]]
+
+    return max(weighted_distance)
 
 
+def choose_district(facilities: list[int], distances: list[list[int]], district_population: list[int]) -> int:
 
-    pass
-
-
-def choose_district(facilities: list[int], distances: list[list[int]]) -> int:
-
-    min_val = -1
-    idx = 0
-
+    unused_facilities = []
+    located_facilities = []
     for i in range(len(facilities)):
         if facilities[i] == 0:
-            temp_arr = facilities
+            unused_facilities.append(i)
+        elif facilities[i] == 1:
+            located_facilities.append(i)
 
-            # aici doar verifici care sunt locatiile in care putem sa punem ambulanta
+    temp_arr = located_facilities[:]
+    greedy_district = 0
+    min_val = math.inf
+    for i in range(len(unused_facilities)):
+        temp_arr.append(unused_facilities[i])
+        current_objective = compute_objective(facilities, temp_arr, distances, district_population)
 
-    # dupa, separat calculezi care este locatia
-    # pentru care amplasarea ambulantei ar scadea costul total cel mai mult
-    """
-    # choose greedily the district with the lowest weighted distance
-    current_objective = compute_objective(temp_arr, i, distances)
-    if current_objective < min_val:
-        min_val = current_objective
-        idx = i
-    """
+        if current_objective < min_val: # choose greedily the district with the lowest weighted distance
+            min_val = current_objective
+            greedy_district = unused_facilities[i]
+        temp_arr = located_facilities[:] # reset
 
-    return facilities[idx]
+    return greedy_district
 
 
-def heuristic_facility_allocation(distances: list[list[int]], district_population: list[int], num_facilities: int) -> int:
+def heuristic_facility_allocation(distances: list[list[int]], district_population: list[int], num_facilities: int) -> None:
+
     """
     Args:
         distances: a 2d array containing the distance between every 2 districts
         district_population: an array containing the population (in thousands)
-        num_facilities: how many facilities to may allocate
+        num_facilities: how many facilities we may allocate
 
     Returns: the minimized maximum population-weighted firefighting (PWFT) times among all districts
 
-    idea: For a given number of iterations, equal to num_facilities, locate an ambulance in a district that
+    idea: For a given number of iterations, equal to num_facilities, locate an ambulance in a district that:
             (1) currently does not have an ambulance AND
             (2) minimizes PWFT among all districts
           If there are multiple districts satisfying these two conditions, pick the one with the smallest district ID.
     """
 
-    facility_idx = [0] * len(district_population)
+    facilities = [0] * len(district_population)
 
     num_iterations = 0
     while num_iterations <= num_facilities:
-        facility_idx.append(choose_district(facility_idx, distances))
+        idx = choose_district(facilities, distances, district_population)
+        print(f"Idx = {idx}")
+        facilities.append(idx)
         num_iterations += 1
 
-    return compute_objective(facility_idx, distances)
+    print(f"Found objective = {compute_objective(facilities, facilities, distances, district_population)}")
 
 
 if __name__ == '__main__':
