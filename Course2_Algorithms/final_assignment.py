@@ -1,4 +1,5 @@
 import math
+from typing import Any
 
 import pyomo.environ as pyo
 
@@ -151,63 +152,60 @@ def min_max_facility_location(model: pyo.ConcreteModel, distances: list[list[int
 
 
 # P3
-def compute_objective(facilities: list[int], located_facilities: list[int], distances: list[list[int]],
+def compute_objective(districts: list[int], located_facilities: list[int], distances: list[list[int]],
                       district_population: list[int]) -> int:
 
-    weighted_distance = [0] * len(located_facilities)
-    print(f"len(weighted_distance) = {len(weighted_distance)}")
-    print(f"len(facilities) = {len(facilities)}")
-    print(f"len(district_population) = {len(district_population)}")
-    print(f"len(distances) = {len(distances)}")
+    weighted_distance = [0] * len(districts)
+    closest_facilities = [0] * len(districts)
+    print(f"located_facilities = {located_facilities}")
 
-    closest_facilities = [0] * len(facilities)
+    if len(located_facilities) == 1:
+        closest_facilities = [located_facilities[0]] * len(districts)
+    else:
+        for i in range(len(districts)):
+            closest_facility_idx = 0
 
-    for i in range(len(facilities)):
-        current_district = facilities[i]
-        closest_facility_idx = 0
+            for j in range(len(located_facilities)):
+                located_facility = located_facilities[j]
+                if distances[i][located_facilities[closest_facility_idx]] > distances[i][located_facility]:
+                    closest_facility_idx = j
 
-        for j in range(len(located_facilities)):
-            located_facility = located_facilities[j]
-            if distances[current_district][located_facility] < distances[current_district][located_facilities[closest_facility_idx]]:
-                closest_facility_idx = j
+            closest_facilities[i] = located_facilities[closest_facility_idx]
 
-        closest_facilities[i] = closest_facility_idx
+    for i in range(len(districts)):
+        weighted_distance[i] += district_population[i] * distances[i][closest_facilities[i]]
 
-    # cumva ajungi la 'len(facilities) = 9
-
-    print(f"closest_facilities = {closest_facilities}")
-    for i in range(len(closest_facilities)):
-        weighted_distance[closest_facilities[i]] += district_population[i] * distances[facilities[i]][closest_facilities[i]]
-
+    print(f"weighted_distance = {weighted_distance}")
     return max(weighted_distance)
 
 
-def choose_district(facilities: list[int], distances: list[list[int]], district_population: list[int]) -> int:
+def choose_district(districts: list[int], distances: list[list[int]], district_population: list[int]) -> tuple[int, int]:
 
-    unused_facilities = []
+    empty_districts = []
     located_facilities = []
-    for i in range(len(facilities)):
-        if facilities[i] == 0:
-            unused_facilities.append(i)
-        elif facilities[i] == 1:
+    for i in range(len(districts)):
+        if districts[i] == 0:
+            empty_districts.append(i)
+        elif districts[i] == 1:
             located_facilities.append(i)
 
-    temp_arr = located_facilities[:]
-    greedy_district = 0
+    temp_arr = located_facilities[:] # temp arr - where we may consider to add another facility
+    best_district = 0
     min_val = math.inf
-    for i in range(len(unused_facilities)):
-        temp_arr.append(unused_facilities[i])
-        current_objective = compute_objective(facilities, temp_arr, distances, district_population)
+
+    for i in range(len(empty_districts)):
+        temp_arr.append(empty_districts[i])
+        current_objective = compute_objective(districts, temp_arr, distances, district_population)
 
         if current_objective < min_val: # choose greedily the district with the lowest weighted distance
             min_val = current_objective
-            greedy_district = unused_facilities[i]
-        temp_arr = located_facilities[:] # reset
+            best_district = empty_districts[i]
+        temp_arr = located_facilities[:] # reset the available facilities
 
-    return greedy_district
+    return best_district, min_val
 
 
-def heuristic_facility_allocation(distances: list[list[int]], district_population: list[int], num_facilities: int) -> None:
+def heuristic_facility_allocation(distances: list[list[int]], district_population: list[int], num_facilities: int) -> int:
 
     """
     Args:
@@ -223,17 +221,22 @@ def heuristic_facility_allocation(distances: list[list[int]], district_populatio
           If there are multiple districts satisfying these two conditions, pick the one with the smallest district ID.
     """
 
-    facilities = [0] * len(district_population)
+    if num_facilities >= len(distances):
+        min_val = 0
+    else:
+        districts = [0] * len(district_population)
+        num_iterations = 0
+        while num_iterations < num_facilities:
+            print(f"Now at iteration {num_iterations + 1}")
 
-    num_iterations = 0
-    while num_iterations <= num_facilities:
-        idx = choose_district(facilities, distances, district_population)
-        print(f"Idx = {idx}")
-        facilities.append(idx)
-        num_iterations += 1
+            idx, min_val = choose_district(districts, distances, district_population)
+            print(f"Chosen idx = {idx}")
 
-    print(f"Found objective = {compute_objective(facilities, facilities, distances, district_population)}")
+            districts[idx] = 1
+            num_iterations += 1
 
+    print(f"Objective by heuristic = {min_val}")
+    return min_val
 
 if __name__ == '__main__':
 
@@ -256,8 +259,10 @@ if __name__ == '__main__':
 
     p_district_population = [40, 30, 35, 20, 15, 50, 45, 60]
 
-    """
-    min_max_facility_location(model=p_model, distances=p_distances, district_population=p_district_population, num_facilities=2)
-    """
+    # num_facilities = 2 ,  num_facilities = 3
+    # optimal_obj  = 135,   optimal_obj  = 100
+    # min_max_facility_location(model=p_model, distances=p_distances, district_population=p_district_population, num_facilities=3)
 
+    # num_facilities = 2 ,  num_facilities = 3
+    # optimal_obj  = 240,   optimal_obj  = 100
     heuristic_facility_allocation(distances=p_distances, district_population=p_district_population, num_facilities=3)
